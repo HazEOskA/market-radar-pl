@@ -1,0 +1,22 @@
+{
+  "name": "market-radar-pl",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "worker": "pnpm --filter @market-radar-pl/worker dev",
+    "web": "pnpm --filter @market-radar-pl/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "turbo": "^1.13.3",
+    "typescript": "^5.3.3"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
