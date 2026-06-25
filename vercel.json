@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm turbo run build --filter=@market-radar-pl/web",
-  "outputDirectory": "apps/web/.next",
+  "outputDirectory": ".next",
   "framework": "nextjs"
 }
