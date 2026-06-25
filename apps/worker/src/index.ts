@@ -5,8 +5,19 @@ import { olxAdapter }     from "./adapters/olx.js";
 import { manualAdapter }  from "./adapters/manual.js";
 import { runOnce }        from "./scheduler.js";
 
-registerAdapter(olxAdapter);
+// The manual adapter is always registered (used as the generic fallback).
 registerAdapter(manualAdapter);
+
+// Source-specific adapters are opt-in via env flags.
+// Set OLX_ENABLED=true to activate the OLX adapter.
+if (process.env["OLX_ENABLED"] === "true") {
+  registerAdapter(olxAdapter);
+  console.log("[worker] OLX adapter enabled");
+}
+// ALLEGRO_ENABLED placeholder — adapter not yet implemented.
+if (process.env["ALLEGRO_ENABLED"] === "true") {
+  console.warn("[worker] ALLEGRO_ENABLED=true but no Allegro adapter is registered yet");
+}
 
 const INTERVAL_MS = parseInt(process.env["WORKER_INTERVAL_MS"] ?? "900000", 10);
 
