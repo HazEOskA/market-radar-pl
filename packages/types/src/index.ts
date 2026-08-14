@@ -12,6 +12,7 @@ export type ListingStatus =
 
 /** Confidence that a listing disappearance reflects a real-world exit */
 export type ConfidenceLabel = "low" | "medium" | "high";
+export type SnapshotHealthStatus = "healthy" | "degraded" | "failed";
 
 export interface Listing {
   id: string;
@@ -26,7 +27,7 @@ export interface Listing {
   location: string | null;
   thumbnail_url: string | null;
   status: ListingStatus;
-  /** Number of consecutive snapshots where this listing was absent */
+  /** Number of consecutive authoritative snapshots where this listing was absent */
   missing_checks: number;
   first_seen_at: string; // ISO-8601
   last_seen_at: string; // ISO-8601
@@ -44,6 +45,10 @@ export interface Snapshot {
   raw_listing_ids: string[];
   http_status: number | null;
   error: string | null;
+  fetch_status: SnapshotHealthStatus;
+  previous_listing_count: number;
+  coverage_ratio: number | null;
+  is_authoritative: boolean;
 }
 
 export type ListingEventType =
