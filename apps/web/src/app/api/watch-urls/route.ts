@@ -4,13 +4,42 @@ import type { Source } from "@market-radar-pl/types";
 
 const ALLOWED_SOURCES: Source[] = ["olx", "allegro", "manual", "otodom", "sprzedajemy"];
 
-function isValidUrl(raw: string): boolean {
+const SOURCE_HOSTS: Partial<Record<Source, string[]>> = {
+  olx: ["olx.pl"],
+  allegro: ["allegro.pl"],
+  otodom: ["otodom.pl"],
+  sprzedajemy: ["sprzedajemy.pl"],
+};
+
+function parseUrl(raw: string): URL | null {
   try {
-    const u = new URL(raw);
-    return u.protocol === "https:" || u.protocol === "http:";
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return null;
+    if (url.username || url.password) return null;
+    return url;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function hostMatches(hostname: string, allowedHost: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const allowed = allowedHost.toLowerCase().replace(/^\./, "").replace(/\.$/, "");
+  return host === allowed || host.endsWith(`.${allowed}`);
+}
+
+function allowedHostsForSource(source: Source): string[] {
+  if (source !== "manual") return SOURCE_HOSTS[source] ?? [];
+  return (process.env["WATCH_URL_ALLOWED_HOSTS"] ?? "")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
+}
+
+function isAuthorizedAdminWrite(req: NextRequest): boolean {
+  const token = process.env["WATCH_URL_ADMIN_TOKEN"];
+  if (!token) return false;
+  return req.headers.get("authorization") === `Bearer ${token}`;
 }
 
 export async function GET() {
@@ -24,6 +53,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!process.env["WATCH_URL_ADMIN_TOKEN"]) {
+    return NextResponse.json(
+      { error: "Watch URL writes are disabled: WATCH_URL_ADMIN_TOKEN is not configured" },
+      { status: 503 },
+    );
+  }
+
+  if (!isAuthorizedAdminWrite(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -37,17 +77,30 @@ export async function POST(req: NextRequest) {
 
   const { url, source, label } = body as Record<string, unknown>;
 
-  if (typeof url !== "string" || !isValidUrl(url)) {
+  if (typeof source !== "string" || !ALLOWED_SOURCES.includes(source as Source)) {
+    return NextResponse.json({ error: "Invalid or missing 'source'" }, { status: 400 });
+  }
+  const resolvedSource = source as Source;
+
+  if (typeof url !== "string") {
     return NextResponse.json({ error: "Invalid or missing 'url'" }, { status: 400 });
   }
+  const parsedUrl = parseUrl(url);
+  if (!parsedUrl) {
+    return NextResponse.json({ error: "Only credential-free HTTPS URLs are allowed" }, { status: 400 });
+  }
 
-  const resolvedSource: Source = (typeof source === "string" && ALLOWED_SOURCES.includes(source as Source))
-    ? (source as Source)
-    : "manual";
+  const allowedHosts = allowedHostsForSource(resolvedSource);
+  if (allowedHosts.length === 0 || !allowedHosts.some((host) => hostMatches(parsedUrl.hostname, host))) {
+    return NextResponse.json(
+      { error: `Host is not allowlisted for source '${resolvedSource}'` },
+      { status: 400 },
+    );
+  }
 
   try {
     const watchUrl = await insertWatchUrl({
-      url,
+      url: parsedUrl.toString(),
       source: resolvedSource,
       label: typeof label === "string" ? label.trim() || null : null,
     });
