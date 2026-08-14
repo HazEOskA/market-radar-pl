@@ -27,11 +27,10 @@ export interface Listing {
   location: string | null;
   thumbnail_url: string | null;
   status: ListingStatus;
-  /** Number of consecutive authoritative snapshots where this listing was absent */
   missing_checks: number;
-  first_seen_at: string; // ISO-8601
-  last_seen_at: string; // ISO-8601
-  probably_gone_at: string | null; // ISO-8601
+  first_seen_at: string;
+  last_seen_at: string;
+  probably_gone_at: string | null;
   confidence: ConfidenceLabel;
   created_at: string;
   updated_at: string;
@@ -40,7 +39,7 @@ export interface Listing {
 export interface Snapshot {
   id: string;
   watch_url_id: string;
-  scraped_at: string; // ISO-8601
+  scraped_at: string;
   listing_count: number;
   raw_listing_ids: string[];
   http_status: number | null;
@@ -62,7 +61,7 @@ export interface ListingEvent {
   listing_id: string;
   event_type: ListingEventType;
   payload: Record<string, unknown>;
-  occurred_at: string; // ISO-8601
+  occurred_at: string;
 }
 
 export interface WatchUrl {
@@ -123,16 +122,67 @@ export interface AdapterResult {
 
 export interface Adapter {
   source: Source;
-  /** Fetch and parse listings from a watch URL */
   fetch(watchUrl: WatchUrl): Promise<AdapterResult>;
 }
-
-// ----------------------------------------------------------------
-// Classifier output
-// ----------------------------------------------------------------
 
 export interface ClassifierResult {
   status: ListingStatus;
   confidence: ConfidenceLabel;
   probably_gone_at: string | null;
+}
+
+// ----------------------------------------------------------------
+// Commerce candidate domain
+// ----------------------------------------------------------------
+
+export type ProductCandidateStatus =
+  | "discovered"
+  | "needs_economics"
+  | "review"
+  | "draft_ready"
+  | "draft_created"
+  | "rejected";
+
+export type CommerceVerdict = "DRAFT_READY" | "REVIEW" | "REJECT";
+
+export interface ProductCandidate {
+  id: string;
+  fingerprint: string;
+  title: string;
+  category: string | null;
+  observed_price_pln: number | null;
+  evidence_count: number;
+  signal_score: number;
+  supplier_cost_pln: number | null;
+  shipping_cost_pln: number | null;
+  channel_fee_pln: number | null;
+  returns_reserve_pln: number;
+  target_price_pln: number | null;
+  contribution_margin_pln: number | null;
+  margin_pct: number | null;
+  status: ProductCandidateStatus;
+  external_draft_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateEvidence {
+  id: string;
+  candidate_id: string;
+  listing_id: string | null;
+  evidence_type: "fast_exit" | "price_signal" | "manual";
+  confidence: ConfidenceLabel;
+  weight: number;
+  payload: Record<string, unknown>;
+  observed_at: string;
+}
+
+export interface CommerceDecision {
+  id: string;
+  candidate_id: string;
+  verdict: CommerceVerdict;
+  score: number;
+  reasons: string[];
+  economics: Record<string, unknown>;
+  decided_at: string;
 }
