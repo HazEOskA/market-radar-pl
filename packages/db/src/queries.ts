@@ -46,7 +46,7 @@ export async function upsertListing(
   watchUrlId: string,
   raw: RawListing,
   source: string
-): Promise<{ listing: Listing; isNew: boolean }> {
+): Promise<{ listing: Listing; isNew: boolean; previous: Listing | null }> {
   const sql = getDb();
 
   const existing = await getListingByUrl(raw.url);
@@ -63,12 +63,14 @@ export async function upsertListing(
         last_seen_at  = now(),
         missing_checks = 0,
         status        = CASE WHEN status = 'probably_gone' THEN 'active' ELSE status END,
+        confidence    = CASE WHEN status = 'probably_gone' THEN 'high' ELSE confidence END,
+        probably_gone_at = CASE WHEN status = 'probably_gone' THEN NULL ELSE probably_gone_at END,
         updated_at    = now()
       WHERE id = ${existing.id}
       RETURNING *
     `;
     if (!updated) throw new Error("Update returned no row");
-    return { listing: updated, isNew: false };
+    return { listing: updated, isNew: false, previous: existing };
   }
 
   const [inserted] = await sql<Listing[]>`
@@ -83,7 +85,7 @@ export async function upsertListing(
     RETURNING *
   `;
   if (!inserted) throw new Error("Insert returned no row");
-  return { listing: inserted, isNew: true };
+  return { listing: inserted, isNew: true, previous: null };
 }
 
 export async function markListingMissing(listingId: string): Promise<Listing> {
@@ -134,13 +136,26 @@ export async function getActiveListingsByWatchUrl(
 export async function insertSnapshot(data: Omit<Snapshot, "id" | "scraped_at">): Promise<Snapshot> {
   const sql = getDb();
   const [row] = await sql<Snapshot[]>`
-    INSERT INTO snapshots (watch_url_id, listing_count, raw_listing_ids, http_status, error)
-    VALUES (
+    INSERT INTO snapshots (
+      watch_url_id,
+      listing_count,
+      raw_listing_ids,
+      http_status,
+      error,
+      fetch_status,
+      previous_listing_count,
+      coverage_ratio,
+      is_authoritative
+    ) VALUES (
       ${data.watch_url_id},
       ${data.listing_count},
       ${sql.array(data.raw_listing_ids)},
       ${data.http_status ?? null},
-      ${data.error ?? null}
+      ${data.error ?? null},
+      ${data.fetch_status},
+      ${data.previous_listing_count},
+      ${data.coverage_ratio ?? null},
+      ${data.is_authoritative}
     )
     RETURNING *
   `;

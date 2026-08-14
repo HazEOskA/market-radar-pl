@@ -50,19 +50,45 @@ CREATE INDEX IF NOT EXISTS idx_listings_category  ON listings(category);
 
 -- ----------------------------------------------------------------
 -- snapshots: one row per worker run per watch_url
+-- Authority metadata prevents fetch/parser failures from becoming false exits.
 -- ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS snapshots (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  watch_url_id    UUID NOT NULL REFERENCES watch_urls(id) ON DELETE CASCADE,
-  scraped_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  listing_count   INTEGER NOT NULL DEFAULT 0,
-  raw_listing_ids UUID[] NOT NULL DEFAULT '{}',
-  http_status     INTEGER,
-  error           TEXT
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  watch_url_id           UUID NOT NULL REFERENCES watch_urls(id) ON DELETE CASCADE,
+  scraped_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  listing_count          INTEGER NOT NULL DEFAULT 0,
+  raw_listing_ids        UUID[] NOT NULL DEFAULT '{}',
+  http_status            INTEGER,
+  error                  TEXT,
+  fetch_status           TEXT NOT NULL DEFAULT 'healthy'
+                           CHECK (fetch_status IN ('healthy','degraded','failed')),
+  previous_listing_count INTEGER NOT NULL DEFAULT 0,
+  coverage_ratio         NUMERIC(12,6),
+  is_authoritative       BOOLEAN NOT NULL DEFAULT true
 );
+
+-- Keep schema.sql safe for existing databases as well as fresh installs.
+ALTER TABLE snapshots
+  ADD COLUMN IF NOT EXISTS fetch_status TEXT NOT NULL DEFAULT 'healthy',
+  ADD COLUMN IF NOT EXISTS previous_listing_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS coverage_ratio NUMERIC(12,6),
+  ADD COLUMN IF NOT EXISTS is_authoritative BOOLEAN NOT NULL DEFAULT true;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'snapshots_fetch_status_check'
+  ) THEN
+    ALTER TABLE snapshots
+      ADD CONSTRAINT snapshots_fetch_status_check
+      CHECK (fetch_status IN ('healthy','degraded','failed'));
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_watch_url ON snapshots(watch_url_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_scraped_at ON snapshots(scraped_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_authoritative ON snapshots(is_authoritative, scraped_at DESC);
 
 -- ----------------------------------------------------------------
 -- listing_events: audit trail of status / price changes
@@ -109,7 +135,8 @@ WHERE  first_seen_at >= now() - INTERVAL '24 hours'
 CREATE OR REPLACE VIEW vw_gone_under_24h AS
 SELECT *
 FROM   listings
-WHERE  probably_gone_at IS NOT NULL
+WHERE  status = 'probably_gone'
+  AND  probably_gone_at IS NOT NULL
   AND  (probably_gone_at - first_seen_at) < INTERVAL '24 hours';
 
 CREATE OR REPLACE VIEW vw_category_heat AS
@@ -117,7 +144,8 @@ SELECT
   COALESCE(category, 'Unknown') AS category,
   COUNT(*) FILTER (WHERE first_seen_at >= now() - INTERVAL '24 hours' AND status = 'active')
     AS new_today,
-  COUNT(*) FILTER (WHERE probably_gone_at IS NOT NULL
+  COUNT(*) FILTER (WHERE status = 'probably_gone'
+    AND probably_gone_at IS NOT NULL
     AND (probably_gone_at - first_seen_at) < INTERVAL '24 hours')
     AS gone_under_24h,
   ROUND(AVG(price_pln) FILTER (WHERE price_pln IS NOT NULL), 2)
